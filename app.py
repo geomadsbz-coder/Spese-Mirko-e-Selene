@@ -6,7 +6,7 @@ import datetime
 st.set_page_config(page_title="Gestione Spese", page_icon="💶", layout="wide")
 st.title("Gestione Spese - Mirko e Selene")
 
-# Funzione di utilità per convertire in modo sicuro qualsiasi numero (gestisce virgole, testi e vuoti)
+# Funzione di utilità per pulire i numeri
 def clean_float(val):
     if pd.isna(val):
         return 0.0
@@ -27,9 +27,25 @@ def carica_tutti_i_dati():
     try:
         xls = pd.ExcelFile(file_path)
     except Exception as e:
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
-    # 1. SPESA
+    # 0. FOGLIO "SPESE" (Spese fisse mensili)
+    df_spese_fisse_excel = pd.read_excel(xls, sheet_name="Spese", header=None)
+    fisse_list = []
+    # Estraiamo le principali voci fisse note dalla struttura (es. righe 5 a 17)
+    for idx, row in df_spese_fisse_excel.iloc[5:17].iterrows():
+        voce = row[0]
+        totale = row[1]
+        if pd.notna(voce) and str(voce).strip() != "":
+            fisse_list.append({
+                "Voce di Spesa Fissa": str(voce),
+                "Importo Totale (€)": clean_float(totale),
+                "Quota Mirko (€)": clean_float(row[2]),
+                "Quota Selene (€)": clean_float(row[4])
+            })
+    df_fisse = pd.DataFrame(fisse_list) if fisse_list else pd.DataFrame(columns=["Voce di Spesa Fissa", "Importo Totale (€)", "Quota Mirko (€)", "Quota Selene (€)"])
+
+    # 1. SPESA (Quotidiana / Ricariche)
     df_spesa_excel = pd.read_excel(xls, sheet_name="Spesa", header=None)
     spese_list = []
     for i in range(0, 72, 6):
@@ -102,19 +118,21 @@ def carica_tutti_i_dati():
                     rate_list.append({"Prodotto/Servizio": p_str, "Importo Totale (€)": imp, "Rata Mensile (€)": rat})
     df_rate = pd.DataFrame(rate_list) if rate_list else pd.DataFrame(columns=["Prodotto/Servizio", "Importo Totale (€)", "Rata Mensile (€)"])
 
-    return df_spese, df_bollette, df_tele, df_lib, df_rate
+    return df_fisse, df_spese, df_bollette, df_tele, df_lib, df_rate
 
 # --- MEMORIZZAZIONE SESSIONE ---
 dfs = carica_tutti_i_dati()
 if dfs[0] is not None:
-    if 'df_spese' not in st.session_state: st.session_state.df_spese = dfs[0]
-    if 'df_bollette' not in st.session_state: st.session_state.df_bollette = dfs[1]
-    if 'df_tele' not in st.session_state: st.session_state.df_tele = dfs[2]
-    if 'df_lib' not in st.session_state: st.session_state.df_lib = dfs[3]
-    if 'df_rate' not in st.session_state: st.session_state.df_rate = dfs[4]
+    if 'df_fisse' not in st.session_state: st.session_state.df_fisse = dfs[0]
+    if 'df_spese' not in st.session_state: st.session_state.df_spese = dfs[1]
+    if 'df_bollette' not in st.session_state: st.session_state.df_bollette = dfs[2]
+    if 'df_tele' not in st.session_state: st.session_state.df_tele = dfs[3]
+    if 'df_lib' not in st.session_state: st.session_state.df_lib = dfs[4]
+    if 'df_rate' not in st.session_state: st.session_state.df_rate = dfs[5]
 
 # --- MENU LATERALE ---
 menu = [
+    "🏠 Spese Fisse & Conguaglio",
     "📊 Output Mensile & Grafici", 
     "🛒 Modifica Spese e Ricariche", 
     "⚡ Modifica Bollette", 
@@ -124,8 +142,32 @@ menu = [
 ]
 scelta = st.sidebar.radio("Scegli la Sezione", menu)
 
+# --- SEZIONE SPESE FISSE E CONGUAGLIO ---
+if scelta == "🏠 Spese Fisse & Conguaglio":
+    st.header("Gestione Spese Fisse Mensili & Quota Selene")
+    st.write("Qui puoi visualizzare e modificare le spese fisse (escluse spesa quotidiana e ricariche). Le quote sono divise equamente al 50%.")
+    
+    # Tabella editabile delle spese fisse
+    st.session_state.df_fisse = st.data_editor(
+        st.session_state.df_fisse,
+        num_rows="dynamic",
+        use_container_width=True,
+        key="editor_fisse"
+    )
+    
+    st.divider()
+    
+    # Calcoli automatici della quota parte
+    totale_fisse = st.session_state.df_fisse["Importo Totale (€)"].sum()
+    quota_selene_totale = totale_fisse / 2.0  # Divisione al 50%
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Totale Spese Fisse Mensili", f"{totale_fisse:.2f} €")
+    col2.metric("Quota di Mirko (50%)", f"{totale_fisse - quota_selene_totale:.2f} €")
+    col3.metric("Quota da versare da parte di Selene", f"{quota_selene_totale:.2f} €", delta="Diviso equamente")
+
 # --- SEZIONE GRAFICA ---
-if scelta == "📊 Output Mensile & Grafici":
+elif scelta == "📊 Output Mensile & Grafici":
     st.header("Analisi Grafica Mensile")
     
     if 'df_spese' in st.session_state and not st.session_state.df_spese.empty:
