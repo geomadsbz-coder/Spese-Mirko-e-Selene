@@ -29,20 +29,22 @@ def carica_tutti_i_dati():
     except Exception as e:
         return None, None, None, None, None, None
 
-    # 0. FOGLIO "SPESE" (Spese fisse mensili)
+    # 0. FOGLIO "SPESE" (Escludendo Spesa e Buoni spesa)
     df_spese_fisse_excel = pd.read_excel(xls, sheet_name="Spese", header=None)
     fisse_list = []
-    # Estraiamo le principali voci fisse note dalla struttura (es. righe 5 a 17)
     for idx, row in df_spese_fisse_excel.iloc[5:17].iterrows():
         voce = row[0]
         totale = row[1]
         if pd.notna(voce) and str(voce).strip() != "":
-            fisse_list.append({
-                "Voce di Spesa Fissa": str(voce),
-                "Importo Totale (€)": clean_float(totale),
-                "Quota Mirko (€)": clean_float(row[2]),
-                "Quota Selene (€)": clean_float(row[4])
-            })
+            voce_str = str(voce).strip()
+            # Escludiamo esplicitamente Spesa e Buoni spesa
+            if "spesa" not in voce_str.lower():
+                fisse_list.append({
+                    "Voce di Spesa Fissa": voce_str,
+                    "Importo Totale (€)": clean_float(totale),
+                    "Quota Mirko (€)": clean_float(row[2]),
+                    "Quota Selene (€)": clean_float(row[4])
+                })
     df_fisse = pd.DataFrame(fisse_list) if fisse_list else pd.DataFrame(columns=["Voce di Spesa Fissa", "Importo Totale (€)", "Quota Mirko (€)", "Quota Selene (€)"])
 
     # 1. SPESA (Quotidiana / Ricariche)
@@ -144,10 +146,10 @@ scelta = st.sidebar.radio("Scegli la Sezione", menu)
 
 # --- SEZIONE SPESE FISSE E CONGUAGLIO ---
 if scelta == "🏠 Spese Fisse & Conguaglio":
-    st.header("Gestione Spese Fisse Mensili & Quota Selene")
-    st.write("Qui puoi visualizzare e modificare le spese fisse (escluse spesa quotidiana e ricariche). Le quote sono divise equamente al 50%.")
+    st.header("Gestione Spese Fisse, Rate & Telepedaggio (Condivise)")
+    st.write("Le seguenti spese fisse, rate (Klarna/Cofidis) e importi del telepedaggio sono considerati condivisi equamente al 50%.")
     
-    # Tabella editabile delle spese fisse
+    st.subheader("1. Voci di Spesa Fissa")
     st.session_state.df_fisse = st.data_editor(
         st.session_state.df_fisse,
         num_rows="dynamic",
@@ -155,16 +157,31 @@ if scelta == "🏠 Spese Fisse & Conguaglio":
         key="editor_fisse"
     )
     
-    st.divider()
-    
-    # Calcoli automatici della quota parte
+    # Calcoli totali spese fisse (escluse spesa/buoni)
     totale_fisse = st.session_state.df_fisse["Importo Totale (€)"].sum()
-    quota_selene_totale = totale_fisse / 2.0  # Divisione al 50%
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Totale Spese Fisse Mensili", f"{totale_fisse:.2f} €")
-    col2.metric("Quota di Mirko (50%)", f"{totale_fisse - quota_selene_totale:.2f} €")
-    col3.metric("Quota da versare da parte di Selene", f"{quota_selene_totale:.2f} €", delta="Diviso equamente")
+    # Totale Rate Klarna/Cofidis
+    totale_rate = 0.0
+    if 'df_rate' in st.session_state and not st.session_state.df_rate.empty:
+        totale_rate = st.session_state.df_rate["Importo Totale (€)"].sum()
+        
+    # Totale Telepedaggio
+    totale_tele = 0.0
+    if 'df_tele' in st.session_state and not st.session_state.df_tele.empty:
+        totale_tele = st.session_state.df_tele["Importo Totale (€)"].sum()
+
+    # Totale generale condiviso
+    totale_condiviso = totale_fisse + totale_rate + totale_tele
+    quota_selene = totale_condiviso / 2.0
+
+    st.divider()
+    st.subheader("Riepilogo Conguaglio Condiviso (50%)")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Tot. Spese Fisse", f"{totale_fisse:.2f} €")
+    col2.metric("Tot. Rate (Klarna/Cofidis)", f"{totale_rate:.2f} €")
+    col3.metric("Tot. Telepedaggio", f"{totale_tele:.2f} €")
+    col4.metric("Quota da versare da Selene", f"{quota_selene:.2f} €", delta="Diviso al 50%")
 
 # --- SEZIONE GRAFICA ---
 elif scelta == "📊 Output Mensile & Grafici":
