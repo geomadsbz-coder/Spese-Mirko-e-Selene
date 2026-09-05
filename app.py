@@ -29,23 +29,17 @@ def carica_tutti_i_dati():
     except Exception as e:
         return None, None, None, None, None, None
 
-    # 0. FOGLIO "SPESE" (Escludendo Spesa e Buoni spesa)
+    # 0. FOGLIO "SPESE" (Fisse mensili puntuali)
     df_spese_fisse_excel = pd.read_excel(xls, sheet_name="Spese", header=None)
-    fisse_list = []
-    for idx, row in df_spese_fisse_excel.iloc[5:17].iterrows():
-        voce = row[0]
-        totale = row[1]
-        if pd.notna(voce) and str(voce).strip() != "":
-            voce_str = str(voce).strip()
-            # Escludiamo esplicitamente Spesa e Buoni spesa
-            if "spesa" not in voce_str.lower():
-                fisse_list.append({
-                    "Voce di Spesa Fissa": voce_str,
-                    "Importo Totale (€)": clean_float(totale),
-                    "Quota Mirko (€)": clean_float(row[2]),
-                    "Quota Selene (€)": clean_float(row[4])
-                })
-    df_fisse = pd.DataFrame(fisse_list) if fisse_list else pd.DataFrame(columns=["Voce di Spesa Fissa", "Importo Totale (€)", "Quota Mirko (€)", "Quota Selene (€)"])
+    fisse_list = [
+        {"Voce di Spesa Fissa": "Affitto", "Importo Totale (€)": 720.0, "Quota Mirko (€)": 360.0, "Quota Selene (€)": 360.0},
+        {"Voce di Spesa Fissa": "Spese Condominiali", "Importo Totale (€)": 80.0, "Quota Mirko (€)": 40.0, "Quota Selene (€)": 40.0},
+        {"Voce di Spesa Fissa": "Rifiuti", "Importo Totale (€)": 8.33, "Quota Mirko (€)": 4.165, "Quota Selene (€)": 4.165},
+        {"Voce di Spesa Fissa": "Bollette Elettriche", "Importo Totale (€)": 64.33, "Quota Mirko (€)": 32.165, "Quota Selene (€)": 32.165},
+        {"Voce di Spesa Fissa": "WiFi", "Importo Totale (€)": 33.95, "Quota Mirko (€)": 16.975, "Quota Selene (€)": 16.975},
+        {"Voce di Spesa Fissa": "Mobili (Uscita conto Selene)", "Importo Totale (€)": 108.0, "Quota Mirko (€)": -54.0, "Quota Selene (€)": 54.0}
+    ]
+    df_fisse = pd.DataFrame(fisse_list)
 
     # 1. SPESA (Quotidiana / Ricariche)
     df_spesa_excel = pd.read_excel(xls, sheet_name="Spesa", header=None)
@@ -79,19 +73,15 @@ def carica_tutti_i_dati():
             })
     df_bollette = pd.DataFrame(bollette_list) if bollette_list else pd.DataFrame(columns=["Numero Documento", "Distributore", "Importo (€)", "Consumo (KW)", "Costo al KW (€)", "Pagato"])
 
-    # 3. TELEPEDAGGIO
+    # 3. TELEPEDAGGIO (Estraiamo la quota di Settembre - colonna indice 4 o riga Settembre)
     df_tele_excel = pd.read_excel(xls, sheet_name="Telepedaggio", header=None)
-    tele_list = []
+    tele_sept_quota = 0.0
     for _, row in df_tele_excel.iloc[3:15].iterrows():
-        mese = row[1]
-        if pd.notna(mese):
-            tele_list.append({
-                "Mese": str(mese), "Importo Totale (€)": clean_float(row[2]), 
-                "Quota Mirko (€)": clean_float(row[3]), 
-                "Quota Condivisa (€)": clean_float(row[4]), 
-                "Parcheggi (€)": clean_float(row[5])
-            })
-    df_tele = pd.DataFrame(tele_list) if tele_list else pd.DataFrame(columns=["Mese", "Importo Totale (€)", "Quota Mirko (€)", "Quota Condivisa (€)", "Parcheggi (€)"])
+        if pd.notna(row[1]) and str(row[1]).strip().lower() == "settembre":
+            # Colonna 4 è "Mirko+Selene" (quota condivisa)
+            val_condivisa = clean_float(row[4])
+            tele_sept_quota = val_condivisa / 2.0 # Diviso equamente
+            break
 
     # 4. LIBRETTO POSTALE
     df_lib_excel = pd.read_excel(xls, sheet_name="Libretto Postale", header=None)
@@ -106,21 +96,23 @@ def carica_tutti_i_dati():
             })
     df_lib = pd.DataFrame(lib_list) if lib_list else pd.DataFrame(columns=["Data", "Versamento Mirko (€)", "Versamento Selene (€)"])
 
-    # 5. RATE (KLARNA + COFIDIS)
+    # 5. RATE (KLARNA + COFIDIS) - Estraiamo solo le quote di Settembre (Colonna 14 per Mirko, 15 per Selene)
     df_rate_excel = pd.read_excel(xls, sheet_name="Klarna + Cofidis", header=None)
-    rate_list = []
+    rate_sept_mirko = 0.0
+    rate_sept_selene = 0.0
     for _, row in df_rate_excel.iloc[5:].iterrows():
         prodotto = row[0]
         if pd.notna(prodotto) and isinstance(prodotto, str):
             p_str = prodotto.strip()
             if p_str and p_str not in ["Importo", "Rata", "Pagamenti Mirko+Selene", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"] and not p_str.startswith("KLARNA") and not p_str.startswith("COFIDIS"):
-                imp = clean_float(row[1])
-                rat = clean_float(row[2])
-                if imp > 0 or rat > 0:
-                    rate_list.append({"Prodotto/Servizio": p_str, "Importo Totale (€)": imp, "Rata Mensile (€)": rat})
-    df_rate = pd.DataFrame(rate_list) if rate_list else pd.DataFrame(columns=["Prodotto/Servizio", "Importo Totale (€)", "Rata Mensile (€)"])
+                m_sept = clean_float(row[14]) # Mirko quota settembre
+                s_sept = clean_float(row[15]) # Selene quota settembre
+                rate_sept_mirko += m_sept
+                rate_sept_selene += s_sept
 
-    return df_fisse, df_spese, df_bollette, df_tele, df_lib, df_rate
+    df_rate = pd.DataFrame(columns=["Prodotto/Servizio", "Importo Totale (€)", "Rata Mensile (€)"]) # Tabella generale rate per editing
+
+    return df_fisse, df_spese, df_bollette, df_lib, df_rate, tele_sept_quota, rate_sept_mirko, rate_sept_selene
 
 # --- MEMORIZZAZIONE SESSIONE ---
 dfs = carica_tutti_i_dati()
@@ -128,9 +120,13 @@ if dfs[0] is not None:
     if 'df_fisse' not in st.session_state: st.session_state.df_fisse = dfs[0]
     if 'df_spese' not in st.session_state: st.session_state.df_spese = dfs[1]
     if 'df_bollette' not in st.session_state: st.session_state.df_bollette = dfs[2]
-    if 'df_tele' not in st.session_state: st.session_state.df_tele = dfs[3]
-    if 'df_lib' not in st.session_state: st.session_state.df_lib = dfs[4]
-    if 'df_rate' not in st.session_state: st.session_state.df_rate = dfs[5]
+    if 'df_lib' not in st.session_state: st.session_state.df_lib = dfs[3]
+    if 'df_rate' not in st.session_state: st.session_state.df_rate = dfs[4]
+    
+    # Valori di settembre calcolati dall'Excel
+    tele_sept_quota = dfs[5]
+    rate_sept_mirko = dfs[6]
+    rate_sept_selene = dfs[7]
 
 # --- MENU LATERALE ---
 menu = [
@@ -146,10 +142,10 @@ scelta = st.sidebar.radio("Scegli la Sezione", menu)
 
 # --- SEZIONE SPESE FISSE E CONGUAGLIO ---
 if scelta == "🏠 Spese Fisse & Conguaglio":
-    st.header("Gestione Spese Fisse, Rate & Telepedaggio (Condivise)")
-    st.write("Le seguenti spese fisse, rate (Klarna/Cofidis) e importi del telepedaggio sono considerati condivisi equamente al 50%.")
+    st.header("Gestione Spese Fisse & Conguaglio Settembre")
+    st.write("Riepilogo delle spese fisse mensili, conguaglio mobili e quote di competenza per il mese di settembre.")
     
-    st.subheader("1. Voci di Spesa Fissa")
+    st.subheader("Tabella Spese Fisse e Mobili")
     st.session_state.df_fisse = st.data_editor(
         st.session_state.df_fisse,
         num_rows="dynamic",
@@ -157,31 +153,29 @@ if scelta == "🏠 Spese Fisse & Conguaglio":
         key="editor_fisse"
     )
     
-    # Calcoli totali spese fisse (escluse spesa/buoni)
-    totale_fisse = st.session_state.df_fisse["Importo Totale (€)"].sum()
+    # 1. Calcolo dalle spese fisse tabellari
+    # Sommiamo le quote di Selene meno eventuali conguagli a favore di Mirko
+    totale_fisse_selene = st.session_state.df_fisse["Quota Selene (€)"].sum()
     
-    # Totale Rate Klarna/Cofidis
-    totale_rate = 0.0
-    if 'df_rate' in st.session_state and not st.session_state.df_rate.empty:
-        totale_rate = st.session_state.df_rate["Importo Totale (€)"].sum()
-        
-    # Totale Telepedaggio
-    totale_tele = 0.0
-    if 'df_tele' in st.session_state and not st.session_state.df_tele.empty:
-        totale_tele = st.session_state.df_tele["Importo Totale (€)"].sum()
+    # 2. Rate Klarna / Cofidis (Solo Settembre)
+    # Se Mirko ha anticipato la quota di Selene o viceversa
+    # In genere la quota di Selene a settembre rappresenta ciò che lei deve versare per le rate di settembre
+    netto_rate_settembre = rate_sept_selene - rate_sept_mirko
+    
+    # 3. Telepedaggio Settembre (Quota condivisa divisa 2)
+    netto_tele_settembre = tele_sept_quota
 
-    # Totale generale condiviso
-    totale_condiviso = totale_fisse + totale_rate + totale_tele
-    quota_selene = totale_condiviso / 2.0
+    # Totale complessivo dovuto da Selene a Mirko per settembre
+    totale_da_versare_selene = totale_fisse_selene + netto_rate_settembre + netto_tele_settembre
 
     st.divider()
-    st.subheader("Riepilogo Conguaglio Condiviso (50%)")
+    st.subheader("Riepilogo Competenze di Settembre")
     
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Tot. Spese Fisse", f"{totale_fisse:.2f} €")
-    col2.metric("Tot. Rate (Klarna/Cofidis)", f"{totale_rate:.2f} €")
-    col3.metric("Tot. Telepedaggio", f"{totale_tele:.2f} €")
-    col4.metric("Quota da versare da Selene", f"{quota_selene:.2f} €", delta="Diviso al 50%")
+    col1.metric("Quote Fisse Selene", f"{totale_fisse_selene:.2f} €")
+    col2.metric("Rate Klarna/Cofidis (Set)", f"{rate_sept_selene:.2f} €")
+    col3.metric("Telepedaggio (Set)", f"{tele_sept_quota:.2f} €")
+    col4.metric("Totale da versare da Selene", f"{totale_da_versare_selene:.2f} €", delta="Aggiornato")
 
 # --- SEZIONE GRAFICA ---
 elif scelta == "📊 Output Mensile & Grafici":
@@ -215,7 +209,10 @@ elif scelta == "⚡ Modifica Bollette":
 
 elif scelta == "🚗 Modifica Telepedaggio":
     st.header("Telepedaggio e Parcheggi")
-    st.session_state.df_tele = st.data_editor(st.session_state.df_tele, num_rows="dynamic", use_container_width=True, key="editor_tel")
+    # Facciamo caricare il df telepedaggio standard per modifica
+    xls = pd.ExcelFile("Spese Mirko e Selene.xlsx")
+    df_tele_raw = pd.read_excel(xls, sheet_name="Telepedaggio", header=None)
+    st.session_state.df_tele = st.data_editor(df_tele_raw.iloc[2:15], num_rows="dynamic", use_container_width=True, key="editor_tel")
 
 elif scelta == "🏦 Modifica Libretto":
     st.header("Libretto Postale")
@@ -223,4 +220,6 @@ elif scelta == "🏦 Modifica Libretto":
 
 elif scelta == "💳 Modifica Rate (Klarna)":
     st.header("Rate: Klarna + Cofidis")
-    st.session_state.df_rate = st.data_editor(st.session_state.df_rate, num_rows="dynamic", use_container_width=True, key="editor_rat")
+    xls = pd.ExcelFile("Spese Mirko e Selene.xlsx")
+    df_rate_raw = pd.read_excel(xls, sheet_name="Klarna + Cofidis", header=None)
+    st.session_state.df_rate = st.data_editor(df_rate_raw.iloc[5:], num_rows="dynamic", use_container_width=True, key="editor_rat")
